@@ -1,0 +1,189 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import time
+import subprocess
+import glob
+import yaml
+import json
+import requests
+import tempfile
+import jwt
+import platform
+from pathlib import Path
+from bs4 import BeautifulSoup
+from http import cookiejar
+import re
+
+requests.packages.urllib3.disable_warnings()
+try:
+    os.makedirs(str(Path.home())+"/.flyenv/bin")
+except Exception:
+    pass
+fly_tmpdir = str(Path.home())+"/.flyenv/bin"
+# Bypass proxy servers because direct connection is faster and more reliable.
+proxies = {"http": "", "https": ""}
+
+
+def extract_auth_token(cookiejar, response):
+    """extract auth token from local cookie file"""
+    auth_token = None
+    concourse_cookies = ["skymarshal_auth0", "skymarshal_auth"]
+    for concourse_cookie in concourse_cookies:
+        for cookie in cookiejar:
+            if cookie.name == concourse_cookie:
+                auth_token = cookie.value.strip('"').split(' ')[1]
+                break
+    if not auth_token:
+        raise Exception(
+            "\x1b[31m Could not retrieve token {} from cookie\x1b[0m\ncurrent cookies: {}".format(
+                " or ".join(concourse_cookies), cookiejar
+            )
+        )
+    # Concourse truncated any cookies larger than 4000 bytes down to exactly 4000. Once you strip off the 'bearer ' part off the cookie, that leaves 3993 of truncated token.
+    # As the truncated cookie does not work, we now try a fallback technique to get the cookie directly from the HTML response that concourse sends.
+    # The response contains a <script> tag which includes the authToken, so we use BeautifulSoup and some regex to extract the token instead. 
+    if len(auth_token) >= 3993:
+        soup = BeautifulSoup(response.content, features="html.parser")
+        scripts=soup.find_all('script')
+        for script in scripts:
+            if script.get('src') == None:
+                script_contents=script.string
+                auth_token=re.search(r'(authToken:\ \"bearer\ )(.*)\"', script_contents, re.IGNORECASE).group(2)
+    return auth_token
+
+
+def get_auth_paths(login_html):
+    """Parse the concourse login page html and return any auth paths (either be 2 paths LDAP+Local, or just local)"""
+    soup = BeautifulSoup(login_html, features="html.parser")
+    auth_paths = []
+    if soup.find('form'):
+        auth_paths.append(soup.find('form').get('action'))
+    else:
+        form_rows = soup.find_all(class_="theme-form-row")
+        for form_row in form_rows:
+            if form_row.find('a')['href']:
+                auth_paths.append(form_row.find('a')['href'])
+    return(auth_paths)
+
+
+def get_auth_token(api_target):
+    cookie_file = tempfile.NamedTemporaryFile()
+    cj = cookiejar.LWPCookieJar(cookie_file.name)
+    s = requests.Session()
+    s.cookies = cj
+    login_html = s.get(api_target+"/login", proxies=proxies, verify=False)
+    if login_html.status_code != 200:
+        print("Could not get login page from concourse.. Bailing")
+        sys.exit(1)
+    auth_paths = get_auth_paths(login_html.content)
+    # If available, ldap auth will be first item in the list, and if not it'll be local auth
+    if 'ldap' in auth_paths[0]:
+        username = subprocess.getoutput(
+            'PASSWORD_STORE_DIR=${HOME}/.my_secrets pass ad-username').strip()
+        password = subprocess.getoutput(
+            'PASSWORD_STORE_DIR=${HOME}/.my_secrets pass ad-password').strip()
+    else:
+        print("Concourse is not using LDAP authentication, aborting ...")
+        sys.exit(1)
+    auth_url = "{}/{}".format(api_target, auth_paths[0].lstrip('/'))
+    auth_payload = {
+        'login': username,
+        'password': password
+    }
+    r = s.post(auth_url, data=auth_payload, verify=False)
+    if 'csrf_token' not in r.url:
+        print("Failed to do concourse authentication... Aborting")
+        sys.exit(1)
+    return extract_auth_token(cj, r)
+
+# Main
+target = ""
+target_url = ""
+cacert_file = ""
+
+for index in range(len(sys.argv)):
+    if sys.argv[index] in ['-t', '--target']:
+        target = sys.argv[index+1]
+    if 'login' in sys.argv and sys.argv[index] in ['-c', '--concourse-url']:
+        target_url = sys.argv[index+1]
+    if sys.argv[index] in ['--ca-cert']:
+        cacert_file = sys.argv[index+1]
+
+if not os.path.exists(str(Path.home())+'/.flyrc'):
+    flyrc = open(str(Path.home())+'/.flyrc', 'w')
+    empty_rc = {'targets': {}}
+    flyrc.write(yaml.dump(empty_rc))
+    flyrc.close()
+
+if target != "":
+    renew_token = True
+    flyrc = yaml.safe_load(open(str(Path.home())+'/.flyrc', 'r').read())
+    if target not in flyrc['targets'].keys():
+        autocomplete=os.getenv('GO_FLAGS_COMPLETION')
+        if autocomplete == '1':
+            for key in flyrc['targets'].keys():
+                if key.startswith(target):
+                    print(key)
+            sys.exit(0)
+        try:
+            if target_url != "" and cacert_file == "":
+                flyrc['targets'][target] = {
+                    'api': target_url, 'token': {'type': 'Bearer', 'value': ''}}
+            if target_url != "" and cacert_file != "":
+                cacert = open(cacert_file, 'r').read()
+                flyrc['targets'][target] = {
+                    'api': target_url, 'ca_cert': cacert, 'token': {'type': 'Bearer', 'value': ''}}
+        except Exception:
+            print(
+                f"Unable to fetch target: {target} from $HOME/.flyrc .. Aborting")
+            sys.exit(1)
+    api_target = flyrc['targets'][target]['api']
+    auth_token = flyrc['targets'][target]['token']['value']
+    try:
+        token_decoded = jwt.decode(auth_token, verify=False)
+        if token_decoded['exp'] > time.time()+60:
+            renew_token = False
+    except jwt.exceptions.DecodeError as e:
+        renew_token == True
+
+    api_info = requests.get(f"{api_target}/api/v1/info",
+                            proxies=proxies, verify=False)
+    if api_info.status_code == 200:
+        version = json.loads(api_info.content)['version']
+        os_platform = platform.system().lower()
+        if not os.access(fly_tmpdir+"/fly_"+version, os.X_OK):
+            binary_finary = requests.get(
+                f"{api_target}/api/v1/cli?arch=amd64&platform={os_platform}", proxies=proxies, verify=False)
+            if binary_finary.status_code == 200:
+                f = open(f"{fly_tmpdir}/fly_{version}", 'wb')
+                f.write(binary_finary.content)
+                f.close()
+                os.chmod(f"{fly_tmpdir}/fly_{version}", 0o755)
+            else:
+                print("Failed to fetch new fly binary.. Aborting")
+                sys.exit(1)
+        if renew_token:
+            flyrc['targets'][target]['token']['value'] = get_auth_token(
+                api_target)
+            rc_file = open(str(Path.home())+'/.flyrc', 'w')
+            rc_file.write(yaml.dump(flyrc))
+            rc_file.close()
+        if 'login' not in sys.argv[1:]:
+            subprocess.run([f"{fly_tmpdir}/fly_{version}"] +
+                           sys.argv[1:], close_fds=False)
+        sys.exit(0)
+    else:
+        print(f"Failed to get version from {api_target}... Aborting")
+        sys.exit(1)
+else:
+    try:
+        newest_fly = max(glob.glob(fly_tmpdir+"/*"), key=os.path.getctime)
+        subprocess.run([newest_fly]+sys.argv[1:])
+    except Exception:
+        print(
+            '\x1b[31mNo cached fly versions yet available. Please specify a target with -t <target> to fetch one.')
+        sys.exit(1)
+
+sys.exit(0)

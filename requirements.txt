@@ -1,0 +1,6 @@
+pyyaml
+PyJWT
+requests
+bs4
+ruamel.yaml
+regex
