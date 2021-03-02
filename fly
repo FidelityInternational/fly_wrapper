@@ -131,13 +131,15 @@ if target != "":
             if target_url != "" and cacert_file == "":
                 flyrc['targets'][target] = {
                     'api': target_url, 'token': {'type': 'Bearer', 'value': ''}}
-            if target_url != "" and cacert_file != "":
+            elif target_url != "" and cacert_file != "":
                 cacert = open(cacert_file, 'r').read()
                 flyrc['targets'][target] = {
                     'api': target_url, 'ca_cert': cacert, 'token': {'type': 'Bearer', 'value': ''}}
+            else:
+                raise Exception
         except Exception:
             print(
-                f"Unable to fetch target: {target} from $HOME/.flyrc .. Aborting")
+                f"Unable to fetch target: {target} from $HOME/.flyrc so cannot determine concourse_url.. Aborting")
             sys.exit(1)
     api_target = flyrc['targets'][target]['api']
     auth_token = flyrc['targets'][target]['token']['value']
