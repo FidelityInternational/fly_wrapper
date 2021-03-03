@@ -43,7 +43,7 @@ def extract_auth_token(cookiejar, response):
         )
     # Concourse truncated any cookies larger than 4000 bytes down to exactly 4000. Once you strip off the 'bearer ' part off the cookie, that leaves 3993 of truncated token.
     # As the truncated cookie does not work, we now try a fallback technique to get the cookie directly from the HTML response that concourse sends.
-    # The response contains a <script> tag which includes the authToken, so we use BeautifulSoup and some regex to extract the token instead. 
+    # The response contains a <script> tag which includes the authToken, so we use BeautifulSoup and some regex to extract the token instead.
     if len(auth_token) >= 3993:
         soup = BeautifulSoup(response.content, features="html.parser")
         scripts=soup.find_all('script')
@@ -67,6 +67,13 @@ def get_auth_paths(login_html):
                 auth_paths.append(form_row.find('a')['href'])
     return(auth_paths)
 
+def get_credential(cred):
+    status, output = subprocess.getstatusoutput(f'PASSWORD_STORE_DIR=${{HOME}}/.my_secrets pass ad-{cred}')
+    if status != 0:
+        print(f"Failed to run pass command on .my_secrets looking for {cred}.")
+        print(f"Exit code: {status}, Output: {output}")
+        sys.exit(status)
+    return output.strip()
 
 def get_auth_token(api_target):
     cookie_file = tempfile.NamedTemporaryFile()
@@ -80,10 +87,8 @@ def get_auth_token(api_target):
     auth_paths = get_auth_paths(login_html.content)
     # If available, ldap auth will be first item in the list, and if not it'll be local auth
     if 'ldap' in auth_paths[0]:
-        username = subprocess.getoutput(
-            'PASSWORD_STORE_DIR=${HOME}/.my_secrets pass ad-username').strip()
-        password = subprocess.getoutput(
-            'PASSWORD_STORE_DIR=${HOME}/.my_secrets pass ad-password').strip()
+        username = get_credential("username")
+        password = get_credential("password")
     else:
         print("Concourse is not using LDAP authentication, aborting ...")
         sys.exit(1)
