@@ -65,10 +65,13 @@ Pull requests will be happily received and reviewed :-)
 If you're looking to implement a different credential store (something other than `pass`) then it should be fairly obvious in the code where it's trying to fetch the credentials currently and pretty straightforward to put into place an alternative. As long as you have some commands that you can use to get your user/password details they should drop right in.
 
 ```python
-username = subprocess.getoutput(
-    'PASSWORD_STORE_DIR=${HOME}/.my_secrets pass ad-username').strip()
-password = subprocess.getoutput(
-        'PASSWORD_STORE_DIR=${HOME}/.my_secrets pass ad-password').strip()
+def get_credential(cred):
+    status, output = subprocess.getstatusoutput(f'PASSWORD_STORE_DIR=${{HOME}}/.my_secrets pass ad-{cred}')
+    if status != 0:
+        print(f"Failed to run pass command on .my_secrets looking for {cred}.")
+        print(f"Exit code: {status}, Output: {output}")
+        sys.exit(status)
+    return output.strip()
 ```
 
 If you find issues/problems, please let us know via Issues on github. We're not promising that we'll fix them as we can't dedicate time to it, but we'd like to know if people find problems anyway.
