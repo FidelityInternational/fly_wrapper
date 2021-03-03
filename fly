@@ -153,7 +153,7 @@ if target != "":
         if token_decoded['exp'] > time.time()+60:
             renew_token = False
     except jwt.exceptions.DecodeError as e:
-        renew_token == True
+        renew_token = True
 
     api_info = requests.get(f"{api_target}/api/v1/info",
                             proxies=proxies, verify=False)
