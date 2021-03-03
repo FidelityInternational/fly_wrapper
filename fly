@@ -69,13 +69,11 @@ def get_auth_paths(login_html):
 
 def get_credential(cred):
     status, output = subprocess.getstatusoutput(f'PASSWORD_STORE_DIR=${{HOME}}/.my_secrets pass ad-{cred}')
-    if status == 0:
-        cred = output.strip()
-        return cred
-    else:
+    if status != 0:
         print(f"Failed to run pass command on .my_secrets looking for {cred}.")
         print(f"Exit code: {status}, Output: {output}")
         sys.exit(status)
+    return output.strip()
 
 def get_auth_token(api_target):
     cookie_file = tempfile.NamedTemporaryFile()
