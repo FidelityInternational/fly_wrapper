@@ -190,7 +190,7 @@ else:
         subprocess.run([newest_fly]+sys.argv[1:])
     except Exception:
         print(
-            '\x1b[31mNo cached fly versions yet available. Please specify a target with -t <target> to fetch one.')
+            '\x1b[31mNo cached fly versions yet available. Please specify a target with -t <target> to fetch one.\x1b[0m')
         sys.exit(1)
 
 sys.exit(0)
