@@ -125,27 +125,30 @@ if not os.path.exists(str(Path.home())+'/.flyrc'):
 if target != "":
     renew_token = True
     flyrc = yaml.safe_load(open(str(Path.home())+'/.flyrc', 'r').read())
-    if target not in flyrc['targets'].keys():
-        autocomplete=os.getenv('GO_FLAGS_COMPLETION')
-        if autocomplete == '1':
-            for key in flyrc['targets'].keys():
-                if key.startswith(target):
-                    print(key)
-            sys.exit(0)
-        try:
-            if target_url != "" and cacert_file == "":
+    autocomplete=os.getenv('GO_FLAGS_COMPLETION')
+    if autocomplete == '1':
+        for key in flyrc['targets'].keys():
+            if key.startswith(target):
+                print(key)
+        sys.exit(0)
+    try:
+        if target_url != "":
+            if cacert_file == "":
                 flyrc['targets'][target] = {
                     'api': target_url, 'token': {'type': 'Bearer', 'value': ''}}
-            elif target_url != "" and cacert_file != "":
+            elif cacert_file != "":
                 cacert = open(cacert_file, 'r').read()
                 flyrc['targets'][target] = {
                     'api': target_url, 'ca_cert': cacert, 'token': {'type': 'Bearer', 'value': ''}}
             else:
                 raise Exception
-        except Exception:
-            print(
-                f"Unable to fetch target: {target} from $HOME/.flyrc so cannot determine concourse_url.. Aborting")
-            sys.exit(1)
+        elif target not in flyrc['targets'].keys() :
+            raise Exception
+    except Exception:
+        print(
+            f"Unable to fetch target: {target} from $HOME/.flyrc so cannot determine concourse_url.. Aborting")
+        sys.exit(1)
+
     api_target = flyrc['targets'][target]['api']
     auth_token = flyrc['targets'][target]['token']['value']
     try:
