@@ -58,6 +58,14 @@ pip install -r requirements.txt
 
 It's exactly the same as `fly` in every way. Same arguments, everything. It will just never ask you to `fly sync` or authenticate through the browser ever again.
 
+## Building a pip package.
+
+A `setup.py` file for use with Python's setuptools is included as part of this repo.
+
+`python setup.py sdist` will create a pip-installable .tgz file contained within the `dist` folder.
+
+This package is not currently available via PyPI, but wouldn't be hard to add if anyone asks for it.
+
 ## Development
 
 Pull requests will be happily received and reviewed :-)
