@@ -107,12 +107,15 @@ def get_auth_token(api_target):
 target = ""
 target_url = ""
 cacert_file = ""
+hijack_url = ""
 
 for index in range(len(sys.argv)):
     if sys.argv[index] in ['-t', '--target']:
         target = sys.argv[index+1]
     if 'login' in sys.argv and sys.argv[index] in ['-c', '--concourse-url']:
         target_url = sys.argv[index+1]
+    if sys.argv[index] in ['-u', '--url']:
+        hijack_url = sys.argv[index+1]
     if sys.argv[index] in ['--ca-cert']:
         cacert_file = sys.argv[index+1]
 
@@ -122,9 +125,15 @@ if not os.path.exists(str(Path.home())+'/.flyrc'):
     flyrc.write(yaml.dump(empty_rc))
     flyrc.close()
 
+flyrc = yaml.safe_load(open(str(Path.home())+'/.flyrc', 'r').read())
+if hijack_url != "":
+    for endpoint in flyrc['targets']:
+        if  flyrc['targets'][endpoint]['api'] in hijack_url:
+            target = endpoint
+            break
+
 if target != "":
     renew_token = True
-    flyrc = yaml.safe_load(open(str(Path.home())+'/.flyrc', 'r').read())
     autocomplete=os.getenv('GO_FLAGS_COMPLETION')
     if autocomplete == '1':
         for key in flyrc['targets'].keys():
@@ -177,6 +186,11 @@ if target != "":
         if renew_token:
             flyrc['targets'][target]['token']['value'] = get_auth_token(
                 api_target)
+            updated_api_url = flyrc['targets'][target]['api']
+            updated_auth_token = flyrc['targets'][target]['token']['value'] 
+            for target in flyrc['targets']:
+                if flyrc['targets'][target]['api'] == updated_api_url:
+                    flyrc['targets'][target]['token']['value'] = updated_auth_token
             rc_file = open(str(Path.home())+'/.flyrc', 'w')
             rc_file.write(yaml.dump(flyrc))
             rc_file.close()
